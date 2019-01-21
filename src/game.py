@@ -4,6 +4,26 @@ from PyQt5.QtGui import QPixmap, QPalette, QColor, QPainter
 from PyQt5.QtWidgets import QMainWindow, QApplication, QLabel, QWidget
 
 
+class ChessGameModel:
+    def __init__(self, rev=False):
+        self.board = [['bj0', 'bm0', 'bx0', 'bs0', 'bc', 'bs1', 'bx1', 'bm1', 'bj1'],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 'bp', 0, 0, 0, 0, 0, 'bp', 0],
+                      ['bz', 0, 'bz', 0, 'bz', 0, 'bz', 0, 'bz'],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      ['rb', 0, 'rb', 0, 'rb', 0, 'rb', 0, 'rb'],
+                      [0, 'rp', 0, 0, 0, 0, 0, 'rp', 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      ['rj0', 'rm0', 'rx0', 'rs0', 'rc', 'rs1', 'rx1', 'rm1', 'rj1'],
+                      ]
+        # print(self.board)
+
+    def __getitem__(self, item):
+        """[] operator overload"""
+        return self.board[item]
+
+
 class TransparentWidget(QWidget):
     def __init__(self, parent, size, pos):
         super().__init__(parent)
@@ -85,20 +105,53 @@ class TransparentWidget(QWidget):
         print("tr", a0.pos())
 
 
-class GameView(QMainWindow):
+class GameController:
     def __init__(self):
+        self.gameMdl = ChessGameModel()
+        print(self.gameMdl[0][0])
+        self.view = GameView(self)
+        self.view.show()
+class GameView(QMainWindow):
+    def __init__(self, controller):
         super().__init__()
+        self.controller = controller
         back = QPixmap("../res/board.png")
         self.setFixedSize(back.size())
         self.bg = QLabel(self)
         self.bg.setPixmap(back)
         self.bg.setFixedSize(back.size())
         self.setCentralWidget(self.bg)
+        self.boardSize = (85, 45, 622 - 84, 662 - 45)
+        self.pieces = dict()
+        self.initPieces()
         self.transparent = TransparentWidget(self, self.bg.size(), self.pos())
 
+    def getPiecePos(self, row, col):
+        # px,py,_,_ = self.boardSize
+        px = 85 + 67 * col - 34
+        py = 45 + 67 * row - 34
+        if row > 4:
+            py += 15
+        return px, py
+
+    def initPieces(self):
+        for row in range(10):
+            for col in range(9):
+                # print(self.controller.gameMdl[row][col])
+                pieceName = self.controller.gameMdl[row][col]
+                if pieceName != 0:
+                    path = '../res/{}.png'.format(pieceName[:2])
+                    piece = QLabel(self)
+                    piece.setPixmap(QPixmap(path))
+                    piece.setFixedSize(piece.pixmap().size())
+                    px, py = self.getPiecePos(row, col)
+                    piece.move(px, py)
+                    self.pieces[pieceName] = piece
+                    print(path)
     def mousePressEvent(self, a0: QtGui.QMouseEvent):
-        print("main",a0.pos())
+        print("main", a0.pos())
         self.transparent.updateShadow(a0.pos())
+
 
 class Piece():
     def __init__(self):
@@ -110,6 +163,5 @@ class Piece():
 
 if __name__ == "__main__":
     app = QApplication([])
-    view = GameView()
-    view.show()
+    game = GameController()
     app.exit(app.exec_())
