@@ -1,27 +1,9 @@
+import traceback
+
 from PyQt5 import QtGui
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QPixmap, QPalette, QColor, QPainter
 from PyQt5.QtWidgets import QMainWindow, QApplication, QLabel, QWidget
-
-
-class ChessGameModel:
-    def __init__(self, rev=False):
-        self.board = [['bj0', 'bm0', 'bx0', 'bs0', 'bc', 'bs1', 'bx1', 'bm1', 'bj1'],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 'bp', 0, 0, 0, 0, 0, 'bp', 0],
-                      ['bz', 0, 'bz', 0, 'bz', 0, 'bz', 0, 'bz'],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0],
-                      ['rb', 0, 'rb', 0, 'rb', 0, 'rb', 0, 'rb'],
-                      [0, 'rp', 0, 0, 0, 0, 0, 'rp', 0],
-                      [0, 0, 0, 0, 0, 0, 0, 0, 0],
-                      ['rj0', 'rm0', 'rx0', 'rs0', 'rc', 'rs1', 'rx1', 'rm1', 'rj1'],
-                      ]
-        # print(self.board)
-
-    def __getitem__(self, item):
-        """[] operator overload"""
-        return self.board[item]
 
 
 class TransparentWidget(QWidget):
@@ -35,6 +17,7 @@ class TransparentWidget(QWidget):
         self.setPalette(palette)
         self.setAutoFillBackground(True)
         self.setMouseTracking(True)
+
         self.position = None
         self.cellSize = 67
         self.riverSize = self.cellSize + 14
@@ -43,27 +26,19 @@ class TransparentWidget(QWidget):
         self.mousePos = (-1, -1)
         # self.setBackgroundRole(QPalette.Window)
 
-    def updateMousePos(self, pos):
-        board_x, board_y, board_w, board_h = self.boardSize
-        x = pos.x() - board_x
-        y = pos.y() - board_y
-        if y > 346:
-            y -= 15
-        mx = x // self.cellSize + (1 if x % self.cellSize > 33 else 0)
-        my = y // self.cellSize + (1 if y % self.cellSize > 33 else 0)
-        self.mousePos = (mx, my)
+    def mouseMoveEvent(self, a0: QtGui.QMouseEvent):
+        # event redirect
+        self.parent().mouseMoveEvent(a0)
 
     def updateShadow(self, pos):
         self.position = pos
         self.update()
         # print(self.position)
 
-    def mouseMoveEvent(self, a0: QtGui.QMouseEvent):
-        # print("mouse move")
-        self.position = a0.pos()
-        self.updateMousePos(self.position)
-
-        self.update()
+    def updateCursor(self, pos):
+        if self.mousePos != pos:
+            self.mousePos = pos
+            self.update()
 
     def paintEvent(self, a0: QtGui.QPaintEvent):
         painter = QPainter(self)
@@ -81,7 +56,7 @@ class TransparentWidget(QWidget):
         # pen.setColor(Qt.red)
         painter.setPen(pen)
 
-        mx, my = self.mousePos
+        my, mx = self.mousePos
         cursor_width, cursor_len = 30, 10
         if 0 <= mx <= 8 and 0 <= my <= 9:
             cx, cy = mx * self.cellSize + board_x, my * self.cellSize + board_y
@@ -101,20 +76,77 @@ class TransparentWidget(QWidget):
             painter.drawLine(x4, y4, x4 - cursor_len, y4)
             painter.drawLine(x4, y4, x4, y4 - cursor_len)
 
-    def mousePressEvent(self, a0: QtGui.QMouseEvent):
-        print("tr", a0.pos())
+    # def mousePressEvent(self, a0: QtGui.QMouseEvent):
+    #     print("tr", a0.pos())
+
+
+class ChessGameModel:
+    def __init__(self, rev=False):
+        self.board = [['bj0', 'bm0', 'bx0', 'bs0', 'bc', 'bs1', 'bx1', 'bm1', 'bj1'],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 'bp0', 0, 0, 0, 0, 0, 'bp1', 0],
+                      ['bz0', 0, 'bz1', 0, 'bz2', 0, 'bz3', 0, 'bz4'],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      ['rb0', 0, 'rb1', 0, 'rb2', 0, 'rb3', 0, 'rb4'],
+                      [0, 'rp0', 0, 0, 0, 0, 0, 'rp1', 0],
+                      [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                      ['rj0', 'rm0', 'rx0', 'rs0', 'rc', 'rs1', 'rx1', 'rm1', 'rj1'],
+                      ]
+        # print(self.board)
+
+    def get(self, pos):
+        row, col = pos
+        return self.board[row][col]
+
+    def __getitem__(self, item):
+        """[] operator overload"""
+        return self.board[item]
+
+    def isValidMove(self, sr, sc, dr, dc):
+        if self.board[sr][sc] == 0 or not (0 <= dr <= 9) or not (0 <= dc <= 8):
+            return False
+
+        return True
+
+    def moveTo(self, sr, sc, dr, dc):
+        print('game model move to')
+        if self.isValidMove(sr, sc, dr, dc):
+            self.board[dr][dc] = self.board[sr][sc]
+            self.board[sr][sc] = 0
+            return True
 
 
 class GameController:
     def __init__(self):
         self.gameMdl = ChessGameModel()
-        print(self.gameMdl[0][0])
+        # print(self.gameMdl[0][0])
         self.view = GameView(self)
         self.view.show()
+
+    def moveTo(self, src, des):
+        sr, sc = src
+        dr, dc = des
+        srcName = self.gameMdl[sr][sc]
+        desName = self.gameMdl[dr][dc]
+        print("move {} from {} to {}".format(srcName, src, des))
+        if self.gameMdl.moveTo(sr, sc, dr, dc) is not None:
+            print("move {} from {} to {}".format(srcName, src, des))
+            self.view.afterMove(srcName, desName)
+        else:
+            self.view.resetFlags()
+
+
 class GameView(QMainWindow):
     def __init__(self, controller):
         super().__init__()
         self.controller = controller
+
+        self.setMouseTracking(True)
+        self.mousePos = (-1, -1)
+        self.src = None
+        self.des = None
+
         back = QPixmap("../res/board.png")
         self.setFixedSize(back.size())
         self.bg = QLabel(self)
@@ -122,9 +154,50 @@ class GameView(QMainWindow):
         self.bg.setFixedSize(back.size())
         self.setCentralWidget(self.bg)
         self.boardSize = (85, 45, 622 - 84, 662 - 45)
+        self.cellSize = 67
         self.pieces = dict()
         self.initPieces()
         self.transparent = TransparentWidget(self, self.bg.size(), self.pos())
+
+    def afterMove(self, srcName, desName):
+        if desName != 0:
+            desPiece = self.pieces[desName]
+            desPiece.setVisible(False)
+        srcPiece = self.pieces[srcName]
+        srcPiece.move(*self.getPiecePos(*self.des))
+        self.resetFlags()
+
+    def resetFlags(self):
+        self.src = None
+        self.des = None
+
+    def updateMousePos(self, pos):
+        board_x, board_y, board_w, board_h = self.boardSize
+        x = pos.x() - board_x
+        y = pos.y() - board_y
+        if y > 346:
+            y -= 15
+        mx = x // self.cellSize + (1 if x % self.cellSize > 33 else 0)
+        my = y // self.cellSize + (1 if y % self.cellSize > 33 else 0)
+        self.mousePos = (my, mx)
+
+    def mouseReleaseEvent(self, a0: QtGui.QMouseEvent):
+        print("main release")
+        if a0.button() == Qt.LeftButton:
+            if self.mousePos == self.src:
+                self.src = None
+            elif self.src is None \
+                    and self.controller.gameMdl.get(self.mousePos) != 0:
+                self.src = self.mousePos
+            elif self.des is None:
+                self.des = self.mousePos
+                print("move pieces")
+                self.controller.moveTo(self.src, self.des)
+
+    def mouseMoveEvent(self, a0: QtGui.QMouseEvent):
+        # print("mouse move")
+        self.updateMousePos(a0.pos())
+        self.transparent.updateCursor(self.mousePos)
 
     def getPiecePos(self, row, col):
         # px,py,_,_ = self.boardSize
@@ -141,16 +214,17 @@ class GameView(QMainWindow):
                 pieceName = self.controller.gameMdl[row][col]
                 if pieceName != 0:
                     path = '../res/{}.png'.format(pieceName[:2])
+                    # print(path)
                     piece = QLabel(self)
                     piece.setPixmap(QPixmap(path))
                     piece.setFixedSize(piece.pixmap().size())
                     px, py = self.getPiecePos(row, col)
                     piece.move(px, py)
                     self.pieces[pieceName] = piece
-                    print(path)
-    def mousePressEvent(self, a0: QtGui.QMouseEvent):
-        print("main", a0.pos())
-        self.transparent.updateShadow(a0.pos())
+
+    # def mousePressEvent(self, a0: QtGui.QMouseEvent):
+    #     print("main", a0.pos())
+    #     self.transparent.updateShadow(a0.pos())
 
 
 class Piece():
