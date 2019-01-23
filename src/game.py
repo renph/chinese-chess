@@ -1,7 +1,7 @@
 import traceback
 
 from PyQt5 import QtGui
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QPoint
 from PyQt5.QtGui import QPixmap, QPalette, QColor, QPainter
 from PyQt5.QtWidgets import QMainWindow, QApplication, QLabel, QWidget
 
@@ -24,7 +24,39 @@ class TransparentWidget(QWidget):
         self.boardSize = (85, 45, 622 - 84, 662 - 45)
 
         self.mousePos = (-1, -1)
+        self._selected = None
         # self.setBackgroundRole(QPalette.Window)
+
+    @property
+    def cursorPosition(self):
+        return self.mousePos
+
+    @cursorPosition.setter
+    def cursorPosition(self, pos):
+        if self.mousePos != pos:
+            my, mx = pos
+            if 0 <= mx <= 8 and 0 <= my <= 9:
+                self.mousePos = (my, mx)
+            else:
+                self.mousePos = (-1, -1)
+            self.update()
+
+    @property
+    def selectedPiece(self):
+        return self._selected
+
+    @selectedPiece.setter
+    def selectedPiece(self, sel):
+        self._selected = sel
+        if sel is not None:
+            row, col = sel
+            px = 85 + 67 * col
+            py = 45 + 67 * row
+            if row > 4:
+                py += 15
+            self._selected = (px, py)
+        self.update()
+
 
     def mouseMoveEvent(self, a0: QtGui.QMouseEvent):
         # event redirect
@@ -76,6 +108,11 @@ class TransparentWidget(QWidget):
             painter.drawLine(x4, y4, x4 - cursor_len, y4)
             painter.drawLine(x4, y4, x4, y4 - cursor_len)
 
+        if self.selectedPiece is not None:
+            mx, my = self.selectedPiece
+            # print("draw ell {}".format(self.selectedPiece))
+            painter.drawEllipse(QPoint(mx, my), 20, 20)
+
     # def mousePressEvent(self, a0: QtGui.QMouseEvent):
     #     print("tr", a0.pos())
 
@@ -95,9 +132,18 @@ class ChessGameModel:
                       ]
         # print(self.board)
 
+    def getValidMoves(self, pieceName, pos):
+        if pieceName[1] in 'zb':
+            pass
+        elif pieceName[1] == 'j':
+            pass
+
+    def getAllValidMoves(self):
+        pass
     def get(self, pos):
         row, col = pos
-        return self.board[row][col]
+        if 0 <= row <= 9 and 0 <= col <= 8:
+            return self.board[row][col]
 
     def __getitem__(self, item):
         """[] operator overload"""
@@ -120,11 +166,17 @@ class ChessGameModel:
 class GameController:
     def __init__(self):
         self.gameMdl = ChessGameModel()
+        self.isNewGame = True
         # print(self.gameMdl[0][0])
         self.view = GameView(self)
         self.view.show()
 
+    def newGame(self):
+        self.isNewGame = True
+
     def moveTo(self, src, des):
+        if not self.isNewGame:
+            return
         sr, sc = src
         dr, dc = des
         srcName = self.gameMdl[sr][sc]
@@ -133,8 +185,6 @@ class GameController:
         if self.gameMdl.moveTo(sr, sc, dr, dc) is not None:
             print("move {} from {} to {}".format(srcName, src, des))
             self.view.afterMove(srcName, desName)
-        else:
-            self.view.resetFlags()
 
 
 class GameView(QMainWindow):
@@ -144,7 +194,7 @@ class GameView(QMainWindow):
 
         self.setMouseTracking(True)
         self.mousePos = (-1, -1)
-        self.src = None
+        self._src = None
         self.des = None
 
         back = QPixmap("../res/board.png")
@@ -159,13 +209,23 @@ class GameView(QMainWindow):
         self.initPieces()
         self.transparent = TransparentWidget(self, self.bg.size(), self.pos())
 
+    @property
+    def src(self):
+        return self._src
+
+    @src.setter
+    def src(self, pos):
+        self._src = pos
+        if self._src == (-1, -1):
+            self._src = None
+        self.transparent.selectedPiece = self._src
+
     def afterMove(self, srcName, desName):
         if desName != 0:
             desPiece = self.pieces[desName]
             desPiece.setVisible(False)
         srcPiece = self.pieces[srcName]
         srcPiece.move(*self.getPiecePos(*self.des))
-        self.resetFlags()
 
     def resetFlags(self):
         self.src = None
@@ -179,25 +239,35 @@ class GameView(QMainWindow):
             y -= 15
         mx = x // self.cellSize + (1 if x % self.cellSize > 33 else 0)
         my = y // self.cellSize + (1 if y % self.cellSize > 33 else 0)
-        self.mousePos = (my, mx)
+        if 0 <= my <= 9 and 0 <= mx <= 8:
+            self.mousePos = (my, mx)
+        else:
+            self.mousePos = (-1, -1)
 
     def mouseReleaseEvent(self, a0: QtGui.QMouseEvent):
         print("main release")
         if a0.button() == Qt.LeftButton:
-            if self.mousePos == self.src:
-                self.src = None
-            elif self.src is None \
-                    and self.controller.gameMdl.get(self.mousePos) != 0:
-                self.src = self.mousePos
-            elif self.des is None:
-                self.des = self.mousePos
-                print("move pieces")
-                self.controller.moveTo(self.src, self.des)
+            print("click on pos {}".format(self.mousePos))
+            row, col = self.mousePos
+            if 0 <= row <= 9 and 0 <= col <= 8:
+                # if click again, cancel selecting
+                if self.mousePos == self.src:
+                    self.src = None
+                elif self.src is None:
+                    if self.controller.gameMdl.get(self.mousePos):
+                        self.src = self.mousePos
+                elif self.des is None:
+                    self.des = self.mousePos
+                    print("move pieces")
+                    self.controller.moveTo(self.src, self.des)
+                    self.resetFlags()
+            else:
+                self.resetFlags()
 
     def mouseMoveEvent(self, a0: QtGui.QMouseEvent):
         # print("mouse move")
         self.updateMousePos(a0.pos())
-        self.transparent.updateCursor(self.mousePos)
+        self.transparent.cursorPosition = self.mousePos
 
     def getPiecePos(self, row, col):
         # px,py,_,_ = self.boardSize
