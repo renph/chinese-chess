@@ -1,9 +1,9 @@
 import traceback
 
 from PyQt5 import QtGui
-from PyQt5.QtCore import Qt, QPoint
+from PyQt5.QtCore import Qt, QPoint, QSize
 from PyQt5.QtGui import QPixmap, QPalette, QColor, QPainter
-from PyQt5.QtWidgets import QMainWindow, QApplication, QLabel, QWidget
+from PyQt5.QtWidgets import QMainWindow, QApplication, QLabel, QWidget, QActionGroup
 
 
 class TransparentWidget(QWidget):
@@ -21,7 +21,7 @@ class TransparentWidget(QWidget):
         self.position = None
         self.cellSize = 67
         self.riverSize = self.cellSize + 14
-        self.boardSize = (85, 45, 622 - 84, 662 - 45)
+        self.boardSize = (85, 45 , 622 - 84, 662 - 45)
 
         self.mousePos = (-1, -1)
         self._selected = None
@@ -50,27 +50,33 @@ class TransparentWidget(QWidget):
         self._selected = sel
         if sel is not None:
             row, col = sel
-            px = 85 + 67 * col
-            py = 45 + 67 * row
+            board_x, board_y, board_w, board_h = self.boardSize
+            px = board_x + 67 * col
+            py = board_y + 67 * row
             if row > 4:
                 py += 15
             self._selected = (px, py)
         self.update()
 
-
     def mouseMoveEvent(self, a0: QtGui.QMouseEvent):
-        # event redirect
-        self.parent().mouseMoveEvent(a0)
+        board_x, board_y, board_w, board_h = self.boardSize
+        x = a0.x() - board_x
+        y = a0.y() - board_y
+        # print("mouse pos x:{}, y:{}".format(x, y))
+        if y > 346:
+            y -= 15
+        mx = x // self.cellSize + (1 if x % self.cellSize > 34 else 0)
+        my = y // self.cellSize + (1 if y % self.cellSize > 34 else 0)
+        if 0 <= my <= 9 and 0 <= mx <= 8:
+            self.cursorPosition = (my, mx)
+        else:
+            self.cursorPosition = (-1, -1)
+        self.parent().updateMousePos(self.cursorPosition)
 
     def updateShadow(self, pos):
         self.position = pos
         self.update()
         # print(self.position)
-
-    def updateCursor(self, pos):
-        if self.mousePos != pos:
-            self.mousePos = pos
-            self.update()
 
     def paintEvent(self, a0: QtGui.QPaintEvent):
         painter = QPainter(self)
@@ -130,6 +136,8 @@ class ChessGameModel:
                       [0, 0, 0, 0, 0, 0, 0, 0, 0],
                       ['rj0', 'rm0', 'rx0', 'rs0', 'rc', 'rs1', 'rx1', 'rm1', 'rj1'],
                       ]
+        self.history = []
+        self.nMoves = 0
         # print(self.board)
 
     def getValidMoves(self, pieceName, pos):
@@ -140,6 +148,7 @@ class ChessGameModel:
 
     def getAllValidMoves(self):
         pass
+
     def get(self, pos):
         row, col = pos
         if 0 <= row <= 9 and 0 <= col <= 8:
@@ -152,12 +161,36 @@ class ChessGameModel:
     def isValidMove(self, sr, sc, dr, dc):
         if self.board[sr][sc] == 0 or not (0 <= dr <= 9) or not (0 <= dc <= 8):
             return False
-
         return True
+
+    def revert(self):
+        move = self.history.pop()
+        nMove, src, sr, sc, dr, dc, des = move
+        if nMove == self.nMoves:  # check number of moves
+            self.nMoves -= 1
+            if self.board[sr][sc] != 0:
+                print('can not revert move {}'.format(move))
+                raise Exception("can not revert")
+            print('revert move {}'.format(move))
+            self.board[sr][sc] = src
+            self.board[dr][dc] = des
+            return move
+        raise Exception("can not revert move")
+
+    def revertMoves(self, num=1):
+        # print(self.history)
+        moves = []
+        for i in range(num):
+            if len(self.history) > 0:
+                move = self.revert()
+                moves.append(move)
+        return moves
 
     def moveTo(self, sr, sc, dr, dc):
         print('game model move to')
         if self.isValidMove(sr, sc, dr, dc):
+            self.nMoves += 1
+            self.history.append((self.nMoves, self.board[sr][sc], sr, sc, dr, dc, self.board[dr][dc]))
             self.board[dr][dc] = self.board[sr][sc]
             self.board[sr][sc] = 0
             return True
@@ -173,6 +206,20 @@ class GameController:
 
     def newGame(self):
         self.isNewGame = True
+        self.gameMdl = ChessGameModel()
+        self.view.initPieces()
+        self.view.update()
+
+    def revertMoves(self):
+        self.view.resetFlags()
+        moves = self.gameMdl.revertMoves()
+        for move in moves:
+            _, src, sr, sc, dr, dc, des = move
+            if des !=0:
+                p = self.view.pieces[des]
+                p.setVisible(True)
+            self.view.movePiece(src, sr,sc)
+        self.view.update()
 
     def moveTo(self, src, des):
         if not self.isNewGame:
@@ -192,22 +239,43 @@ class GameView(QMainWindow):
         super().__init__()
         self.controller = controller
 
-        self.setMouseTracking(True)
         self.mousePos = (-1, -1)
         self._src = None
         self.des = None
 
         back = QPixmap("../res/board.png")
-        self.setFixedSize(back.size())
+        self.setFixedSize(back.size() + QSize(0, 30))
         self.bg = QLabel(self)
+        self.bg.move(QPoint(0,30))
         self.bg.setPixmap(back)
         self.bg.setFixedSize(back.size())
-        self.setCentralWidget(self.bg)
-        self.boardSize = (85, 45, 622 - 84, 662 - 45)
+        # self.setCentralWidget(self.bg)
+        self.boardSize = (85, 45+30, 622 - 84, 662 - 45)
         self.cellSize = 67
         self.pieces = dict()
         self.initPieces()
-        self.transparent = TransparentWidget(self, self.bg.size(), self.pos())
+        self.transparent = TransparentWidget(self, self.bg.size(), self.bg.pos())
+
+        menubar = self.menuBar()
+        startMenu = menubar.addMenu("Start")
+        startMenu.addAction("New game", self.controller.newGame, "Ctrl+P")
+        startMenu.addAction("Undo last move", self.controller.revertMoves, "Ctrl+Z")
+        startMenu.addSeparator()
+        # startMenu.addSeparator()
+        self.pSetting = QActionGroup(self, exclusive=True)
+        for act in ["Red", "Black"]:
+            a = self.pSetting.addAction(act)
+            a.setCheckable(True)
+            if act == "Red":
+                a.setChecked(True)
+            # a.triggered.connect(self.pvcSetting)
+            startMenu.addAction(a)
+        # # startMenu.addAction("New game (P vs A)", self.controller.pvaGame, "Ctrl+A")
+        startMenu.addSeparator()
+        startMenu.addAction("Quit", self.close, "Ctrl+Q")
+
+        print("Size: window {} bg {}".format(self.size(), self.bg.size()))
+        print("Pos:  bg {}".format(self.bg.pos()))
 
     @property
     def src(self):
@@ -224,28 +292,22 @@ class GameView(QMainWindow):
         if desName != 0:
             desPiece = self.pieces[desName]
             desPiece.setVisible(False)
-        srcPiece = self.pieces[srcName]
-        srcPiece.move(*self.getPiecePos(*self.des))
+        self.movePiece(srcName, *self.des)
+
+    def movePiece(self, pieceName, dr, dc):
+        piece = self.pieces[pieceName]
+        piece.move(*self.getPiecePos(dr, dc))
+
 
     def resetFlags(self):
         self.src = None
         self.des = None
 
     def updateMousePos(self, pos):
-        board_x, board_y, board_w, board_h = self.boardSize
-        x = pos.x() - board_x
-        y = pos.y() - board_y
-        if y > 346:
-            y -= 15
-        mx = x // self.cellSize + (1 if x % self.cellSize > 33 else 0)
-        my = y // self.cellSize + (1 if y % self.cellSize > 33 else 0)
-        if 0 <= my <= 9 and 0 <= mx <= 8:
-            self.mousePos = (my, mx)
-        else:
-            self.mousePos = (-1, -1)
+        self.mousePos = pos
 
     def mouseReleaseEvent(self, a0: QtGui.QMouseEvent):
-        print("main release")
+        print("main release at {}".format(a0.pos()))
         if a0.button() == Qt.LeftButton:
             print("click on pos {}".format(self.mousePos))
             row, col = self.mousePos
@@ -264,15 +326,16 @@ class GameView(QMainWindow):
             else:
                 self.resetFlags()
 
-    def mouseMoveEvent(self, a0: QtGui.QMouseEvent):
-        # print("mouse move")
-        self.updateMousePos(a0.pos())
-        self.transparent.cursorPosition = self.mousePos
+    # def mouseMoveEvent(self, a0: QtGui.QMouseEvent):
+    #     # print("mouse move")
+    #     self.updateMousePos(a0.pos())
+    #     self.transparent.cursorPosition = self.mousePos
 
     def getPiecePos(self, row, col):
         # px,py,_,_ = self.boardSize
-        px = 85 + 67 * col - 34
-        py = 45 + 67 * row - 34
+        board_x, board_y, board_width, board_height = self.boardSize
+        px = board_x + 67 * col - 34
+        py = board_y + 67 * row - 34
         if row > 4:
             py += 15
         return px, py
@@ -282,15 +345,20 @@ class GameView(QMainWindow):
             for col in range(9):
                 # print(self.controller.gameMdl[row][col])
                 pieceName = self.controller.gameMdl[row][col]
-                if pieceName != 0:
+                if pieceName == 0:
+                    continue
+                if pieceName not in self.pieces:
                     path = '../res/{}.png'.format(pieceName[:2])
                     # print(path)
                     piece = QLabel(self)
                     piece.setPixmap(QPixmap(path))
                     piece.setFixedSize(piece.pixmap().size())
-                    px, py = self.getPiecePos(row, col)
-                    piece.move(px, py)
                     self.pieces[pieceName] = piece
+                else:
+                    piece = self.pieces[pieceName]
+                    piece.setVisible(True)
+                px, py = self.getPiecePos(row, col)
+                piece.move(px, py)
 
     # def mousePressEvent(self, a0: QtGui.QMouseEvent):
     #     print("main", a0.pos())
