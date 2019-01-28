@@ -4,6 +4,7 @@ from PyQt5 import QtGui
 from PyQt5.QtCore import Qt, QPoint, QSize
 from PyQt5.QtGui import QPixmap, QPalette, QColor, QPainter
 from PyQt5.QtWidgets import QMainWindow, QApplication, QLabel, QWidget, QActionGroup
+from piece import Piece
 
 
 class TransparentWidget(QWidget):
@@ -21,7 +22,7 @@ class TransparentWidget(QWidget):
         self.position = None
         self.cellSize = 67
         self.riverSize = self.cellSize + 14
-        self.boardSize = (85, 45 , 622 - 84, 662 - 45)
+        self.boardSize = (85, 45, 622 - 84, 662 - 45)
 
         self.mousePos = (-1, -1)
         self._selected = None
@@ -124,7 +125,7 @@ class TransparentWidget(QWidget):
 
 
 class ChessGameModel:
-    def __init__(self, rev=False):
+    def __init__(self, nextMove=1):
         self.board = [['bj0', 'bm0', 'bx0', 'bs0', 'bc', 'bs1', 'bx1', 'bm1', 'bj1'],
                       [0, 0, 0, 0, 0, 0, 0, 0, 0],
                       [0, 'bp0', 0, 0, 0, 0, 0, 'bp1', 0],
@@ -136,18 +137,26 @@ class ChessGameModel:
                       [0, 0, 0, 0, 0, 0, 0, 0, 0],
                       ['rj0', 'rm0', 'rx0', 'rs0', 'rc', 'rs1', 'rx1', 'rm1', 'rj1'],
                       ]
+        self.validMoves = dict()
         self.history = []
         self.nMoves = 0
+        self.nextMove = nextMove  # black -1 red 1
+        self.getValidMoves()
         # print(self.board)
 
-    def getValidMoves(self, pieceName, pos):
-        if pieceName[1] in 'zb':
-            pass
-        elif pieceName[1] == 'j':
-            pass
-
-    def getAllValidMoves(self):
+    def checkBoard(self):
         pass
+
+    def getValidMoves(self):
+        self.validMoves = dict()
+        nextMove = "rb"[self.nMoves % 2]
+        for i in range(10):
+            for j in range(9):
+                p = self.board[i][j]
+                if p != 0 and p[0] == nextMove:
+                    moves = Piece.getValidMoves(p, (i, j), self.board)
+                    self.validMoves[p] = moves
+        # print(self.validMoves)
 
     def get(self, pos):
         row, col = pos
@@ -157,11 +166,6 @@ class ChessGameModel:
     def __getitem__(self, item):
         """[] operator overload"""
         return self.board[item]
-
-    def isValidMove(self, sr, sc, dr, dc):
-        if self.board[sr][sc] == 0 or not (0 <= dr <= 9) or not (0 <= dc <= 8):
-            return False
-        return True
 
     def revert(self):
         move = self.history.pop()
@@ -184,15 +188,24 @@ class ChessGameModel:
             if len(self.history) > 0:
                 move = self.revert()
                 moves.append(move)
+        self.getValidMoves()
         return moves
 
-    def moveTo(self, sr, sc, dr, dc):
+    def isValidMove(self, sr, sc, dr, dc):
+        src = self.board[sr][sc]
+        if src in self.validMoves and (dr, dc) in self.validMoves[src]:
+            return True
+        return False
+
+    def moveTo(self, sr: int, sc: int, dr: int, dc: int):
         print('game model move to')
         if self.isValidMove(sr, sc, dr, dc):
             self.nMoves += 1
             self.history.append((self.nMoves, self.board[sr][sc], sr, sc, dr, dc, self.board[dr][dc]))
             self.board[dr][dc] = self.board[sr][sc]
             self.board[sr][sc] = 0
+
+            self.getValidMoves()
             return True
 
 
@@ -215,10 +228,10 @@ class GameController:
         moves = self.gameMdl.revertMoves()
         for move in moves:
             _, src, sr, sc, dr, dc, des = move
-            if des !=0:
+            if des != 0:
                 p = self.view.pieces[des]
                 p.setVisible(True)
-            self.view.movePiece(src, sr,sc)
+            self.view.movePiece(src, sr, sc)
         self.view.update()
 
     def moveTo(self, src, des):
@@ -228,7 +241,7 @@ class GameController:
         dr, dc = des
         srcName = self.gameMdl[sr][sc]
         desName = self.gameMdl[dr][dc]
-        print("move {} from {} to {}".format(srcName, src, des))
+        # print("move {} from {} to {}".format(srcName, src, des))
         if self.gameMdl.moveTo(sr, sc, dr, dc) is not None:
             print("move {} from {} to {}".format(srcName, src, des))
             self.view.afterMove(srcName, desName)
@@ -246,11 +259,11 @@ class GameView(QMainWindow):
         back = QPixmap("../res/board.png")
         self.setFixedSize(back.size() + QSize(0, 30))
         self.bg = QLabel(self)
-        self.bg.move(QPoint(0,30))
+        self.bg.move(QPoint(0, 30))
         self.bg.setPixmap(back)
         self.bg.setFixedSize(back.size())
         # self.setCentralWidget(self.bg)
-        self.boardSize = (85, 45+30, 622 - 84, 662 - 45)
+        self.boardSize = (85, 45 + 30, 622 - 84, 662 - 45)
         self.cellSize = 67
         self.pieces = dict()
         self.initPieces()
@@ -298,7 +311,6 @@ class GameView(QMainWindow):
         piece = self.pieces[pieceName]
         piece.move(*self.getPiecePos(dr, dc))
 
-
     def resetFlags(self):
         self.src = None
         self.des = None
@@ -307,9 +319,9 @@ class GameView(QMainWindow):
         self.mousePos = pos
 
     def mouseReleaseEvent(self, a0: QtGui.QMouseEvent):
-        print("main release at {}".format(a0.pos()))
+        # print("main release at {}".format(a0.pos()))
         if a0.button() == Qt.LeftButton:
-            print("click on pos {}".format(self.mousePos))
+            # print("click on pos {}".format(self.mousePos))
             row, col = self.mousePos
             if 0 <= row <= 9 and 0 <= col <= 8:
                 # if click again, cancel selecting
@@ -363,14 +375,6 @@ class GameView(QMainWindow):
     # def mousePressEvent(self, a0: QtGui.QMouseEvent):
     #     print("main", a0.pos())
     #     self.transparent.updateShadow(a0.pos())
-
-
-class Piece():
-    def __init__(self):
-        pass
-
-    def getValidMoves(self):
-        pass
 
 
 if __name__ == "__main__":
